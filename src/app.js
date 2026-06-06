@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
+const connectDB = require('./config/db');
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -41,7 +42,7 @@ if (process.env.NODE_ENV === 'development') {
 // Serve uploaded files statically
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Health check
+// Health check (no database required)
 app.get('/health', (req, res) => {
   res.json({
     success: true,
@@ -49,6 +50,20 @@ app.get('/health', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
   });
+});
+
+// Connect to MongoDB before API routes
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database connection error:', error.message);
+    res.status(503).json({
+      success: false,
+      message: 'Database connection failed. Check MONGODB_URI on the server.',
+    });
+  }
 });
 
 // API Routes
