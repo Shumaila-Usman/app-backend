@@ -5,7 +5,6 @@ const path = require('path');
 const fs = require('fs');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
-const connectDB = require('./config/db');
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -19,10 +18,17 @@ const uploadRoutes = require('./routes/uploadRoutes');
 
 const app = express();
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Uploads directory (skip if read-only, e.g. Vercel cold start)
+const uploadsDir = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, '../uploads');
+
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (error) {
+  console.warn('Uploads directory not available:', error.message);
 }
 
 // Middleware
@@ -39,34 +45,21 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
-// Health check (no database required)
-app.get('/health', (req, res) => {
-  res.json({
+const healthHandler = (req, res) => {
+  console.log('Health route reached:', req.path || req.url);
+  return res.status(200).json({
     success: true,
     message: 'SiteLedger API is running',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
   });
-});
+};
 
-// Connect to MongoDB before API routes
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    console.error('Database connection error:', error.message);
-    res.status(503).json({
-      success: false,
-      message: 'Database connection failed. Check MONGODB_URI on the server.',
-    });
-  }
-});
+// Health routes — no MongoDB, must respond immediately
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
-// API Routes
+// API Routes (MongoDB connection handled in api/index.js on Vercel, server.js locally)
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/contractors', contractorRoutes);
@@ -76,10 +69,7 @@ app.use('/api/labour', labourRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// 404 handler
 app.use(notFound);
-
-// Error handler
 app.use(errorHandler);
 
 module.exports = app;
